@@ -5,22 +5,26 @@ import {
   useContext,
   ReactNode,
   useEffect,
+  useState,
+  useRef,
+  ChangeEvent,
+  FormEvent,
 } from "react";
 import { useChat as useAIChat } from "@ai-sdk/react";
-import { Message } from "ai";
+import { UIMessage, DefaultChatTransport } from "ai";
 import { useFileSystem } from "./file-system-context";
 import { setHasAnonWork } from "@/lib/anon-work-tracker";
 
 interface ChatContextProps {
   projectId?: string;
-  initialMessages?: Message[];
+  initialMessages?: UIMessage[];
 }
 
 interface ChatContextType {
-  messages: Message[];
+  messages: UIMessage[];
   input: string;
-  handleInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
-  handleSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
+  handleInputChange: (e: ChangeEvent<HTMLTextAreaElement>) => void;
+  handleSubmit: (e: FormEvent<HTMLFormElement>) => void;
   status: string;
 }
 
@@ -32,24 +36,47 @@ export function ChatProvider({
   initialMessages = [],
 }: ChatContextProps & { children: ReactNode }) {
   const { fileSystem, handleToolCall } = useFileSystem();
+  const [input, setInput] = useState("");
+  const fileSystemRef = useRef(fileSystem);
+  const projectIdRef = useRef(projectId);
+
+  useEffect(() => {
+    fileSystemRef.current = fileSystem;
+  }, [fileSystem]);
+
+  useEffect(() => {
+    projectIdRef.current = projectId;
+  }, [projectId]);
 
   const {
     messages,
-    input,
-    handleInputChange,
-    handleSubmit,
+    sendMessage,
     status,
   } = useAIChat({
-    api: "/api/chat",
-    initialMessages,
-    body: {
-      files: fileSystem.serialize(),
-      projectId,
-    },
+    messages: initialMessages,
+    transport: new DefaultChatTransport({
+      api: "/api/chat",
+      body: () => ({
+        files: fileSystemRef.current.serialize(),
+        projectId: projectIdRef.current,
+      }),
+    }),
     onToolCall: ({ toolCall }) => {
-      handleToolCall(toolCall);
+      handleToolCall(toolCall as any);
     },
   });
+
+  const handleInputChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value);
+  };
+
+  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const trimmed = input.trim();
+    if (!trimmed) return;
+    setInput("");
+    sendMessage({ text: trimmed });
+  };
 
   // Track anonymous work
   useEffect(() => {
